@@ -15,97 +15,33 @@ HTTP, HTTPS, DNS, TCP and ICMP.
     ./blackbox_exporter <flags>
 
 Visiting [http://localhost:9115/probe?target=google.com&module=http_2xx](http://localhost:9115/probe?target=google.com&module=http_2xx)
-will return metrics for a HTTP probe against google.com.
+will return metrics for a HTTP probe against google.com. The `probe_success`
+metric indicates if the probe succeeded. Adding a `debug=true` parameter
+will return debug information for that probe.
 
 ### Building with Docker
 
     docker build -t blackbox_exporter .
-    docker run -d -p 9115:9115 --name blackbox_exporter -v `pwd`:/config blackbox_exporter -config.file=/config/blackbox.yml
+    docker run -d -p 9115:9115 --name blackbox_exporter -v `pwd`:/config blackbox_exporter --config.file=/config/blackbox.yml
 
-## Configuration
+## [Configuration](CONFIGURATION.md)
 
-A configuration showing all options is below:
-```yml
-modules:
-  http_2xx_example:
-    prober: http
-    timeout: 5s
-    http:
-      valid_status_codes: []  # Defaults to 2xx
-      method: GET
-      headers:
-        Host: vhost.example.com
-        Accept-Language: en-US
-      no_follow_redirects: false
-      fail_if_ssl: false
-      fail_if_not_ssl: false
-      fail_if_matches_regexp:
-        - "Could not connect to database"
-      fail_if_not_matches_regexp:
-        - "Download the latest version here"
-      tls_config:
-        insecure_skip_verify: false
-      protocol: "tcp" # accepts "tcp/tcp4/tcp6", defaults to "tcp"
-      preferred_ip_protocol: "ip4" # used for "tcp", defaults to "ip6"
-  http_post_2xx:
-    prober: http
-    timeout: 5s
-    http:
-      method: POST
-      headers:
-        Content-Type: application/json
-      body: '{}'
-  tcp_connect_v4_example:
-    prober: tcp
-    timeout: 5s
-    tcp:
-      protocol: "tcp4"
-  irc_banner_example:
-    prober: tcp
-    timeout: 5s
-    tcp:
-      query_response:
-        - send: "NICK prober"
-        - send: "USER prober prober prober :prober"
-        - expect: "PING :([^ ]+)"
-          send: "PONG ${1}"
-        - expect: "^:[^ ]+ 001"
-  icmp_example:
-    prober: icmp
-    timeout: 5s
-    icmp:
-      protocol: "icmp"
-      preferred_ip_protocol: "ip4"
-  dns_udp_example:
-    prober: dns
-    timeout: 5s
-    dns:
-      query_name: "www.prometheus.io"
-      query_type: "A"
-      valid_rcodes:
-      - NOERROR
-      validate_answer_rrs:
-        fail_if_matches_regexp:
-        - ".*127.0.0.1"
-        fail_if_not_matches_regexp:
-        - "www.prometheus.io.\t300\tIN\tA\t127.0.0.1"
-      validate_authority_rrs:
-        fail_if_matches_regexp:
-        - ".*127.0.0.1"
-      validate_additional_rrs:
-        fail_if_matches_regexp:
-        - ".*127.0.0.1"
-  dns_tcp_example:
-    prober: dns
-    dns:
-      protocol: "tcp" # accepts "tcp/tcp4/tcp6/udp/udp4/udp6", defaults to "udp"
-      preferred_ip_protocol: "ip4" # used for "udp/tcp", defaults to "ip6"
-      query_name: "www.prometheus.io"
-```
+Blackbox exporter is configured via a [configuration file](CONFIGURATION.md) and command-line flags (such as what configuration file to load, what port to listen on, and the logging format and level).
 
-HTTP, HTTPS (via the `http` prober), DNS, TCP socket and ICMP (v4 only, see permissions section) are currently supported.
+Blackbox exporter can reload its configuration file at runtime. If the new configuration is not well-formed, the changes will not be applied.
+A configuration reload is triggered by sending a `SIGHUP` to the Blackbox exporter process or by sending a HTTP POST request to the `/-/reload` endpoint.
+
+To view all available command-line flags, run `./blackbox_exporter -h`.
+
+To specify which [configuration file](CONFIGURATION.md) to load, use the `--config.file` flag.
+
+Additionally, an [example configuration](example.yml) is also available.
+
+HTTP, HTTPS (via the `http` prober), DNS, TCP socket and ICMP (see permissions section) are currently supported.
 Additional modules can be defined to meet your needs.
 
+The timeout of each probe is automatically determined from the `scrape_timeout` in the [Prometheus config](https://prometheus.io/docs/operating/configuration/#configuration-file), slightly reduced to allow for network delays. 
+This can be further limited by the `timeout` in the Blackbox exporter config file. If neither is specified, it defaults to 10 seconds.
 
 ## Prometheus Configuration
 
@@ -121,20 +57,16 @@ scrape_configs:
       module: [http_2xx]  # Look for a HTTP 200 response.
     static_configs:
       - targets:
-        - prometheus.io   # Target to probe
+        - http://prometheus.io    # Target to probe with http.
+        - https://prometheus.io   # Target to probe with https.
+        - http://example.com:8080 # Target to probe with http on port 8080.
     relabel_configs:
       - source_labels: [__address__]
-        regex: (.*)(:80)?
         target_label: __param_target
-        replacement: ${1}
       - source_labels: [__param_target]
-        regex: (.*)
         target_label: instance
-        replacement: ${1}
-      - source_labels: []
-        regex: .*
-        target_label: __address__
-        replacement: 127.0.0.1:9115  # Blackbox exporter.
+      - target_label: __address__
+        replacement: 127.0.0.1:9115  # The blackbox exporter's real hostname:port.
 ```
 
 ## Permissions
